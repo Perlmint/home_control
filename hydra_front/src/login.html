@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Login</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="https://unpkg.com/purecss@2.1.0/build/pure-min.css" integrity="sha384-yHIFVG6ClnONEA5yB5DJXfW2/KC173DIQrYoZMEtBvGzmf0PKiGyNEqe9N6BNDBH" crossorigin="anonymous">
+    </head>
+    <body style="display: flex; align-items: center; justify-content: center; position: absolute; height: 100%; width: 100%;">
+        <div>
+            <form class="pure-form pure-form-stacked" action="/login" method="post">
+                <fieldset>
+                    <input type="hidden" name="challenge" value="{}" />
+                    <label for="stacked-username">Username</label>
+                    <input type="text" id="stacked-username" name="id" />
+                    <label for="stacked-password">Password</label>
+                    <input type="password" id="stacked-password" name="password" />
+                    <button type="submit" class="pure-button pure-button-primary" style="width: 100%;">Login</button>
+                </fieldset>
+            </form>
+        </div>
+    </body>
+</html>

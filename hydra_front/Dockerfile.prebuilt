@@ -1,0 +1,7 @@
+FROM --platform=linux/arm64 scratch
+
+ADD target/aarch64-unknown-linux-musl/release/hydra_front /hydra_front
+
+EXPOSE 8088
+
+ENTRYPOINT [ "/hydra_front" ]
