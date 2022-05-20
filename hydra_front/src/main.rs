@@ -240,35 +240,33 @@ struct IntrospectResponse {
     exp: u64,
 }
 
-async fn forward_auth(
+async fn forward_auth_bearer(
     Extension(config): Extension<Arc<HydraConfig>>,
-    bearer_authorization: Option<
-        TypedHeader<headers::Authorization<headers::authorization::Bearer>>,
-    >,
+    TypedHeader(authorization): TypedHeader<headers::Authorization<headers::authorization::Bearer>>,
 ) -> Response {
-    if let Some(TypedHeader(bearer_token)) = bearer_authorization {
-        let token = bearer_token.token();
-        let resp: IntrospectResponse = reqwest::Client::new()
-            .post(config.admin_url.join("oauth2/introspect").unwrap())
-            .form(&IntrospectRequest {
-                scope: None,
-                token: token,
-            })
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
+    let token = authorization.token();
+    let resp: IntrospectResponse = reqwest::Client::new()
+        .post(config.admin_url.join("oauth2/introspect").unwrap())
+        .form(&IntrospectRequest {
+            scope: None,
+            token: token,
+        })
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
 
-        if resp.active {
-            (StatusCode::OK).into_response()
-        } else {
-            (StatusCode::FORBIDDEN).into_response()
-        }
+    if resp.active {
+        (StatusCode::OK).into_response()
     } else {
-        // TODO: use session cookie
-        (StatusCode::FORBIDDEN).into_response()
+        let mut resp = (StatusCode::UNAUTHORIZED).into_response();
+        resp.headers_mut().append(
+            HeaderName::from_static("WWW-Authenticate"),
+            HeaderValue::from_static(r#"Bearer error="invalid_token"""#),
+        );
+        resp
     }
 }
 
@@ -277,7 +275,7 @@ async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
     let app = Router::new()
-        .route("/forward-auth", get(forward_auth))
+        .route("/forward-auth", get(forward_auth_bearer))
         .route("/login", get(login_get))
         .route("/login", post(login_post))
         .route("/consent", get(consent))
