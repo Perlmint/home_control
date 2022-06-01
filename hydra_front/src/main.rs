@@ -270,6 +270,9 @@ async fn forward_auth_bearer(
     }
 }
 
+#[cfg(not(any(feature = "auth-pam", feature = "auth-shadow")))]
+compile_error! {"At least one auth should be enabled"}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
