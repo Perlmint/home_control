@@ -79,9 +79,9 @@ struct HydraLoginAccept {
     subject: String,
     remember: bool,
     remember_for: u64,
-    acr: String,
-    context: HashMap<String, String>,
-    force_subject_identifier: String,
+    acr: Option<String>,
+    context: Option<HashMap<String, String>>,
+    force_subject_identifier: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -148,9 +148,9 @@ async fn login_post(
                 subject: request.id,
                 remember: true,
                 remember_for: 0,
-                acr: "".to_string(),
+                acr: None,
                 context: Default::default(),
-                force_subject_identifier: "".to_string(),
+                force_subject_identifier: None,
             })
     } else {
         reqwest::Client::new()
