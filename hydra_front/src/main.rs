@@ -1,10 +1,10 @@
 use axum::{
     extract::{Form, Query},
-    headers,
-    http::{StatusCode, Uri},
+    headers::{self, HeaderName},
+    http::{HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
-    Extension, Json, Router, TypedHeader,
+    Extension, Router, TypedHeader,
 };
 use reqwest::Url;
 use std::{collections::HashMap, sync::Arc};
