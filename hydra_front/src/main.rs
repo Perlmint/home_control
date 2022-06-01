@@ -210,7 +210,7 @@ async fn consent(
             url
         })
         .json(&ConsentAccept {
-            grant_scope: vec!["openid".to_string()],
+            grant_scope: vec!["openid".to_string(), "offline_access".to_string()],
             grant_access_token_audience: Vec::new(),
             remember: true,
             remember_for: 0,
