@@ -12,7 +12,6 @@ constexpr int LED_INDEXES[LED_COUNT] = {10};
 struct State
 {
     int led_powers[LED_COUNT] = {0};
-    int wifi_status = WL_IDLE_STATUS;
 } STATE;
 
 WiFiServer server(80);
@@ -30,6 +29,24 @@ void printWifiStatus()
     Serial.print("signal strength (RSSI):");
     Serial.print(rssi);
     Serial.println(" dBm");
+}
+
+void connectWifi() {
+    int wifi_status = WL_IDLE_STATUS;
+    while (wifi_status != WL_CONNECTED)
+    {
+        Serial.print("Attempting to connect to SSID: ");
+        Serial.println(WIFI_SSID);
+        // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
+        wifi_status = WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+        // wait 10 seconds for connection:
+        delay(10000);
+    }
+
+    server.begin();
+
+    // you're connected now, so print out the status:
+    printWifiStatus();
 }
 
 void setup()
@@ -65,26 +82,15 @@ void setup()
         Serial.println("Please upgrade the firmware");
     }
 
-    // attempt to connect to Wifi network:
-    while (STATE.wifi_status != WL_CONNECTED)
-    {
-        Serial.print("Attempting to connect to SSID: ");
-        Serial.println(WIFI_SSID);
-        // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
-        STATE.wifi_status = WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-        // wait 10 seconds for connection:
-        delay(10000);
-    }
-
-    server.begin();
-
-    // you're connected now, so print out the status:
-
-    printWifiStatus();
+    connectWifi();
 }
 
 void loop()
 {
+    if (WiFi.status() != WL_CONNECTED) {
+        connectWifi();
+    }
+
     WiFiClient client = server.available();
 
     if (client)
