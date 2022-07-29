@@ -1,0 +1,9 @@
+[plant_led_0]
+type = "plant_led"
+host = "192.168.1.10"
+internal_id = 0
+
+[room_air_conditioner]
+type = "samsung_air_conditioner"
+token = "b690ddd8-70f0-4e68-b1ef-e2bc747c5f7e"
+device_id = "cb2eddac-bfd2-1057-7493-3a0a573e507a"

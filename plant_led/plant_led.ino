@@ -2,8 +2,12 @@
 #include <WiFiServer.h>
 #include <string>
 
-char WIFI_SSID[] = "";
-char WIFI_PASSWORD[] = "";
+const char html[] =
+#include "./index.html"
+;
+
+char WIFI_SSID[] = "PerlmintHome";
+char WIFI_PASSWORD[] = "ghanghan";
 const int WIFI_KEY_INDEX = 0;
 
 constexpr int MAX_LED_POWER = 255;

@@ -147,7 +147,7 @@ async fn login_post(
             .json(&HydraLoginAccept {
                 subject: request.id,
                 remember: true,
-                remember_for: 0,
+                remember_for: 3600,
                 acr: None,
                 context: Default::default(),
                 force_subject_identifier: None,
