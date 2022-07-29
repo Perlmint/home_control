@@ -2,14 +2,12 @@ use reqwest::Url;
 
 use anyhow::Context;
 
-use crate::{
-    local_home::{
-        state::{Brightness, OnOff, State},
-        Device, DeviceName, DeviceTrait, DeviceType, DeviceWithDetail, Execution,
-    },
-    Error, ErrorWrap,
+use crate::{Error, ErrorWrap};
+use google_smart_home::{
+    Attributes, Command, Device, DeviceName, DeviceWithDetail, State, States, Trait, Type,
 };
 
+#[derive(serde::Deserialize)]
 pub struct PlantLedConfig {
     pub host: String,
     pub internal_id: u8,
@@ -20,17 +18,17 @@ pub struct PlantLed {
 }
 
 impl PlantLed {
-    pub fn new(config: PlantLedConfig) -> Self {
-        Self {
+    pub async fn new(config: PlantLedConfig) -> anyhow::Result<Self> {
+        Ok(Self {
             api_endpoint: Url::parse(&format!(
                 "http://{}/lights/{}/power",
                 config.host, config.internal_id
             ))
             .unwrap(),
-        }
+        })
     }
 
-    fn parse_plant_led_response(body: String) -> Result<State, Error> {
+    fn parse_plant_led_response(body: String) -> Result<States, Error> {
         let raw_brightness: u16 = body
             .trim()
             .parse()
@@ -41,13 +39,14 @@ impl PlantLed {
 
         log::debug!("plant led brightness: {} -> {}", &body, brightness);
 
-        Ok(State {
-            on_off: Some(OnOff {
-                on: raw_brightness != 0,
-            }),
-            brightness: Some(Brightness { brightness }),
-            ..Default::default()
-        })
+        Ok(States(vec![
+            State::OnOff {
+                on: Some(raw_brightness != 0),
+            },
+            State::Brightness {
+                brightness: Some(brightness),
+            },
+        ]))
     }
 }
 
@@ -67,13 +66,14 @@ impl super::HomeDevice for PlantLed {
             device_info: None,
             other_device_ids: Default::default(),
             room_hint: None,
-            traits: vec![DeviceTrait::OnOff, DeviceTrait::Brightness],
-            r#type: DeviceType::Light,
+            traits: vec![Trait::OnOff, Trait::Brightness],
+            attributes: Attributes(vec![]),
+            r#type: Type::Light,
             will_report_state: false,
         }
     }
 
-    async fn query(&self) -> Result<State, Error> {
+    async fn query(&self) -> Result<States, Error> {
         let body = reqwest::get(self.api_endpoint.clone())
             .await
             .server_error()?
@@ -84,11 +84,11 @@ impl super::HomeDevice for PlantLed {
         Self::parse_plant_led_response(body)
     }
 
-    async fn execute(&self, executions: &Vec<Execution>) -> Result<State, Error> {
+    async fn execute(&self, executions: &Vec<Command>) -> Result<States, Error> {
         let query = match executions.get(0).unwrap() {
-            Execution::OnOff(onoff) => if onoff.on { 128 } else { 0 }.to_string(),
-            Execution::BrightnessAbsolute(brightness) => {
-                ((brightness.brightness as f32 * 255f32 / 100f32) as u8).to_string()
+            Command::OnOff { on } => if *on { 128 } else { 0 }.to_string(),
+            Command::BrightnessAbsolute { brightness } => {
+                ((*brightness as f32 * 255f32 / 100f32) as u8).to_string()
             }
             _ => {
                 unreachable!();

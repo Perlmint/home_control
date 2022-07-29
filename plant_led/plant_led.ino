@@ -2,6 +2,10 @@
 #include <WiFiServer.h>
 #include <string>
 
+const char html[] =
+#include "./index.html"
+;
+
 char WIFI_SSID[] = "";
 char WIFI_PASSWORD[] = "";
 const int WIFI_KEY_INDEX = 0;

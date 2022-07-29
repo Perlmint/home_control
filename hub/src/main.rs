@@ -1,18 +1,16 @@
 use std::{collections::HashMap, ops::Deref, sync::Arc};
 
+use anyhow::Context;
 use axum::{http::StatusCode, routing::post, Extension, Json, Router};
 
-use device::{PlantLedConfig, HomeDevice};
+use device::HomeDevice;
 use fallible_iterator::FallibleIterator;
-use local_home::{
+use google_smart_home::{
     ExecuteRequest, ExecuteResponse, Intent, QueryRequest, QueryResponse, Response,
-    ResponsePayload, ResponseWithPayload, StatusReport, SyncResponse,
+    ResponsePayload, ResponseWithPayload, StateOrError, StatusReport, SyncResponse,
 };
 
-use crate::local_home::Status;
-
 mod device;
-mod local_home;
 
 pub enum Error {
     ClientError(anyhow::Error),
@@ -83,9 +81,15 @@ impl axum::response::IntoResponse for Error {
 async fn handle_sync(
     devices: Arc<HashMap<String, Arc<Box<dyn HomeDevice + Send + Sync>>>>,
 ) -> Result<SyncResponse, Error> {
+    log::trace!("handle sync begin");
+    let devices = devices.iter().map(|(id, device)| device.sync(id)).collect();
+    log::trace!(
+        "handle sync end - {}",
+        &serde_json::to_string(&devices).unwrap()
+    );
     Ok(SyncResponse {
-        agent_user_id: "".to_string(),
-        devices: devices.iter().map(|(id, device)| device.sync(id)).collect(),
+        agent_user_id: "perlmint_home".to_string(),
+        devices,
     })
 }
 
@@ -93,75 +97,96 @@ async fn handle_query(
     devices: Arc<HashMap<String, Arc<Box<dyn HomeDevice + Send + Sync>>>>,
     query: QueryRequest,
 ) -> Result<QueryResponse, Error> {
-    Ok(QueryResponse {
-        devices: fallible_iterator::convert(
-            futures::future::join_all(query.devices.into_iter().map(|device| {
-                let home_device = devices.get(&device.id).unwrap().clone();
-                tokio::spawn({
-                    Box::pin(async move {
-                        home_device
-                            .query()
-                            .await
-                            .map(|state| (device.id.clone(), state))
-                    })
+    log::trace!("handle query begin");
+    let devices = fallible_iterator::convert(
+        futures::future::join_all(query.devices.into_iter().map(|device| {
+            let home_device = devices.get(&device.id).cloned();
+            let device_id = device.id.clone();
+            tokio::spawn({
+                Box::pin(async move {
+                    let state = if let Some(home_device) = home_device {
+                        StateOrError::State(home_device.query().await?)
+                    } else {
+                        log::warn!("device {} is not found", &device_id);
+                        StateOrError::Error(google_smart_home::Error::DeviceNotFound)
+                    };
+
+                    Ok((device_id, state))
                 })
-            }))
-            .await
-            .into_iter()
-            .map(|o| match o {
-                Ok(Ok(v)) => Ok(v),
-                Ok(Err(e)) => Err(e),
-                Err(e) => Err(Error::server_error(e)),
-            }),
-        )
-        .collect()?,
-    })
+            })
+        }))
+        .await
+        .into_iter()
+        .map(|o| match o {
+            Ok(Ok(v)) => Ok(v),
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(Error::server_error(e)),
+        }),
+    )
+    .collect()?;
+    log::trace!(
+        "handle query end - {}",
+        &serde_json::to_string(&devices).unwrap()
+    );
+
+    Ok(QueryResponse { devices })
 }
 
 async fn handle_execute(
     devices: Arc<HashMap<String, Arc<Box<dyn HomeDevice + Send + Sync>>>>,
     execute: ExecuteRequest,
 ) -> Result<ExecuteResponse, Error> {
-    Ok(ExecuteResponse {
-        commands: fallible_iterator::convert(
-            futures::future::join_all(execute.commands.into_iter().flat_map(|mut command| {
-                let execution = Arc::new(command.execution.drain(0..).collect::<Vec<_>>());
-                command.devices.into_iter().map({
-                    let execution = execution.clone();
-                    let devices = devices.clone();
-                    move |device| {
-                        let home_device = devices.get(&device.id).unwrap().clone();
-                        tokio::spawn({
-                            let execution = execution.clone();
-                            Box::pin(async move {
-                                home_device.execute(execution.deref()).await.map(|states| {
-                                    StatusReport {
-                                        ids: vec![device.id],
-                                        status: Status::Success,
-                                        states,
-                                    }
-                                })
+    log::trace!("handle execute begin");
+    let commands = fallible_iterator::convert(
+        futures::future::join_all(execute.commands.into_iter().flat_map(|mut command| {
+            let execution = Arc::new(command.execution.drain(0..).collect::<Vec<_>>());
+            command.devices.into_iter().map({
+                let execution = execution.clone();
+                let devices = devices.clone();
+                move |device| {
+                    let home_device = devices.get(&device.id).cloned();
+                    let device_id = device.id.clone();
+                    tokio::spawn({
+                        let execution = execution.clone();
+                        Box::pin(async move {
+                            let state = if let Some(home_device) = home_device {
+                                StateOrError::State(home_device.execute(execution.deref()).await?)
+                            } else {
+                                log::warn!("device {} is not found", &device_id);
+                                StateOrError::Error(google_smart_home::Error::DeviceNotFound)
+                            };
+
+                            Ok(StatusReport {
+                                ids: vec![device_id],
+                                status: state,
                             })
                         })
-                    }
-                })
-            }))
-            .await
-            .into_iter()
-            .map(|o| match o {
-                Ok(Ok(v)) => Ok(v),
-                Ok(Err(e)) => Err(e),
-                Err(e) => Err(Error::server_error(e)),
-            }),
-        )
-        .collect()?,
-    })
+                    })
+                }
+            })
+        }))
+        .await
+        .into_iter()
+        .map(|o| match o {
+            Ok(Ok(v)) => Ok(v),
+            Ok(Err(e)) => Err(e),
+            Err(e) => Err(Error::server_error(e)),
+        }),
+    )
+    .collect()?;
+    log::trace!(
+        "handle execute end - {}",
+        &serde_json::to_string(&commands).unwrap()
+    );
+
+    Ok(ExecuteResponse { commands })
 }
 
 async fn handle_fulfillment(
     Extension(devices): Extension<Arc<HashMap<String, Arc<Box<dyn HomeDevice + Send + Sync>>>>>,
-    Json(mut request): Json<local_home::Request>,
-) -> Result<Json<local_home::Response>, Error> {
+    Json(mut request): Json<google_smart_home::Request>,
+) -> Result<Json<google_smart_home::Response>, Error> {
+    log::trace!("{:?}", request);
     let payload: ResponsePayload = {
         let input = request.inputs.remove(0);
 
@@ -185,23 +210,37 @@ async fn handle_fulfillment(
     })))
 }
 
+#[derive(serde::Deserialize)]
+#[serde(transparent)]
+pub struct HubConfig(pub HashMap<String, device::DeviceConfigs>);
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
 
+    let devices: HashMap<_, _> = {
+        let path = std::env::var("HUB_CONFIG").expect("HUB_CONFIG env is mandatory");
+        let raw_config = std::fs::read(path).context("Failed to read specified config file")?;
+        let config: HubConfig =
+            toml::from_slice(&raw_config).context("Failed to parse config file")?;
+
+        fallible_iterator::convert(
+            futures::future::join_all(config.0.into_iter().map(|(key, config)| async {
+                config
+                    .create_device()
+                    .await
+                    .map(|device| (key, Arc::new(device)))
+            }))
+            .await
+            .into_iter(),
+        )
+        .collect()?
+    };
+
     let app = Router::new()
         .route("/fulfillment", post(handle_fulfillment))
         .layer(tower_http::trace::TraceLayer::new_for_http())
-        .layer(Extension(Arc::new(HashMap::from([(
-            "example".to_string(),
-            Arc::new({
-                let boxed: Box<dyn HomeDevice + Send + Sync> = Box::new(device::PlantLed::new(PlantLedConfig {
-                    host: "192.168.1.1".to_string(),
-                    internal_id: 0,
-                }));
-                boxed
-            }),
-        )]))));
+        .layer(Extension(Arc::new(devices)));
 
     let signal = {
         #[cfg(target_os = "linux")]
