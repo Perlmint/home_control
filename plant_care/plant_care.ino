@@ -2,20 +2,19 @@
 #include <WiFiServer.h>
 #include <string>
 
-const char html[] =
-#include "./index.html"
-;
-
-char WIFI_SSID[] = "";
-char WIFI_PASSWORD[] = "";
+const char WIFI_SSID[] = "";
+const char WIFI_PASSWORD[] = "";
 const int WIFI_KEY_INDEX = 0;
 
-constexpr int MAX_LED_POWER = 255;
-constexpr size_t LED_COUNT = 1;
-constexpr int LED_INDEXES[LED_COUNT] = {10};
+constexpr int MAX_OUT_POWER = 255;
+constexpr size_t OUT_COUNT = 2;
+constexpr int OUT_INDEXES[OUT_COUNT] = {
+    10,
+    11
+};
 struct State
 {
-    int led_powers[LED_COUNT] = {0};
+    int out_powers[OUT_COUNT] = {0};
 } STATE;
 
 WiFiServer server(80);
@@ -56,18 +55,18 @@ void connectWifi() {
 void setup()
 {
     // set all led power off
-    for (auto &power : STATE.led_powers)
+    for (auto &power : STATE.out_powers)
     {
         power = 0;
     }
-    for (size_t idx = 0; idx < LED_COUNT; idx++)
+    for (size_t idx = 0; idx < OUT_COUNT; idx++)
     {
-        analogWrite(LED_INDEXES[idx], STATE.led_powers[idx]);
+        analogWrite(OUT_INDEXES[idx], STATE.out_powers[idx]);
     }
 
     Serial.begin(115200);
 
-    WiFi.setHostname("PlantLEDs");
+    WiFi.setHostname("PlantOUTs");
 
     if (WiFi.status() == WL_NO_MODULE)
     {
@@ -175,22 +174,48 @@ void loop()
             const char *http_status = "200 OK";
             Serial.println(method.data());
             Serial.println(uri.data());
-            if (uri == "/lights/0/power") {
-                // TODO: parse light index
-                light_idx = 0;
-                if (light_idx >= LED_COUNT) {
-                    response = "Specified Light doesn't exist";
+
+            size_t prev_pos = 1;
+            size_t idx = 0;
+            int out_idx = -1;
+            bool stop = false;
+            while (!stop) {
+                size_t pos = uri.find('/', prev_pos);
+                if (pos == -1) {
+                    stop = true;
+                    break;
+                }
+                uri[pos] = '\0';
+                const char *fragment = uri.data() + prev_pos;
+                switch (idx) {
+                    case 0:
+                        if (strncmp(fragment, "power", 5) == 0) {
+                            stop = true;
+                        }
+                        break;
+                    case 1:
+                        out_idx = atoi(fragment);
+                        break;
+                    default:
+                        out_idx = -1;
+                        stop = true;
+                        break;
+                }
+            }
+            if (out_idx != -1) {
+                if (out_idx >= OUT_COUNT) {
+                    response = "Specified Out doesn't exist";
                     http_status = "404 NOTFOUND";
                 } else {
                     if (method == "GET") {
-                        response = std::to_string(STATE.led_powers[light_idx]);
+                        response = std::to_string(STATE.out_powers[out_idx]);
                     } else if (method == "PUT") {
                         int power = std::atoi(body.data());
-                        if (power > MAX_LED_POWER) {
+                        if (power > MAX_OUT_POWER) {
                             response = "Too large power";
                             http_status = "400 BAD REQUEST";
                         } else {
-                            STATE.led_powers[light_idx] = power;
+                            STATE.out_powers[out_idx] = power;
                             response = std::to_string(power);
                         }
                     }
@@ -217,8 +242,8 @@ void loop()
     // close the connection:
     client.stop();
 
-    for (size_t idx = 0; idx < LED_COUNT; idx++)
+    for (size_t idx = 0; idx < OUT_COUNT; idx++)
     {
-        analogWrite(LED_INDEXES[idx], STATE.led_powers[idx]);
+        analogWrite(OUT_INDEXES[idx], STATE.out_powers[idx]);
     }
 }
