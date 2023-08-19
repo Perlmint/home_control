@@ -187,19 +187,46 @@ struct ConsentQuery {
 }
 
 #[derive(serde::Serialize)]
+struct Session {
+    access_token: HashMap<String, String>,
+    id_token: HashMap<String, String>,
+}
+
+#[derive(serde::Serialize)]
 struct ConsentAccept {
     grant_scope: Vec<String>,
     grant_access_token_audience: Vec<String>,
     remember: bool,
     remember_for: u64,
-    session: HashMap<String, String>,
+    session: Session,
+}
+
+#[derive(serde::Deserialize)]
+struct ConsentInfo {
+    subject: String,
 }
 
 async fn consent(
     Extension(config): Extension<Arc<HydraConfig>>,
     Query(query): Query<ConsentQuery>,
-) -> Redirect {
-    let resp: HydraLoginResult = reqwest::Client::new()
+) -> Response {
+    let info: ConsentInfo = reqwest::Client::new()
+        .get({
+            let mut url = config
+                .admin_url
+                .join("/oauth2/auth/requests/consent")
+                .unwrap();
+            url.query_pairs_mut()
+                .append_pair("consent_challenge", &query.consent_challenge);
+            url
+        })
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let resp = reqwest::Client::new()
         .put({
             let mut url = config
                 .admin_url
@@ -210,20 +237,30 @@ async fn consent(
             url
         })
         .json(&ConsentAccept {
-            grant_scope: vec!["openid".to_string(), "offline_access".to_string()],
+            grant_scope: vec![
+                "openid".to_string(),
+                "offline_access".to_string(),
+                "email".to_string(),
+            ],
             grant_access_token_audience: Vec::new(),
             remember: true,
             remember_for: 0,
-            session: HashMap::new(),
+            session: Session {
+                access_token: Default::default(),
+                id_token: [("email".to_string(), info.subject)].into_iter().collect(),
+            },
         })
         .send()
         .await
-        .unwrap()
-        .json()
-        .await
         .unwrap();
+    if resp.status().is_success() {
+        let resp: HydraLoginResult = resp.json().await.unwrap();
 
-    Redirect::to(&resp.redirect_to)
+        Redirect::to(&resp.redirect_to).into_response()
+    } else {
+        log::error!("consent failed - {}", resp.text().await.unwrap());
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    }
 }
 
 #[derive(serde::Serialize)]
