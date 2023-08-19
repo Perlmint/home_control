@@ -11,6 +11,8 @@ from homeassistant.components.light import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 
+from . import PlantCareEntity
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -21,16 +23,18 @@ async def async_setup_entry(
     async_add_entities([Light(host)])
     return True
 
-class Light(LightEntity):
+class Light(PlantCareEntity, LightEntity):
     def __init__(self, host) -> None:
-        self._url = f'http://{host}/power/0'
-        self._name = f'{host} LED'
+        super().__init__(host, 0)
         self._brightness = None
-        self._supported_color_modes = set(ColorMode.BRIGHTNESS)
+
+    @property
+    def unique_id(self):
+        return f'{self._base_unique_id}.light'
 
     @property
     def name(self) -> str:
-        return self._name
+        return f'{self._host} LED'
 
     @property
     def brightness(self):
@@ -42,17 +46,18 @@ class Light(LightEntity):
 
     @property
     def supported_color_modes(self):
-        return self._supported_color_modes
+        return set(ColorMode.BRIGHTNESS)
 
     @property
     def is_on(self) -> bool | None:
         return self._brightness != 0
 
     def turn_on(self, **kwargs: Any) -> None:
-        self._brightness = int(requests.put(self._url, str(kwargs.get(ATTR_BRIGHTNESS, 255))).text)
+        self._brightness = self.set_power(kwargs.get(ATTR_BRIGHTNESS, 255))
 
     def turn_off(self, **kwargs: Any) -> None:
-        self._brightness = int(requests.put(self._url, '0').text)
+        self._brightness = self.set_power(0)
 
     def update(self) -> None:
-        self._brightness = int(requests.get(self._url).text)
+        self._brightness = self.get_power()
+
